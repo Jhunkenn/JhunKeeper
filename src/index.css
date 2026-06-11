@@ -87,12 +87,18 @@ input {
   border-radius: 11px;
   background: var(--ink);
   color: #fff;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-family: var(--display);
   font-weight: 700;
-  font-size: 20px;
+  font-size: 17px;
+  letter-spacing: -0.03em;
+  line-height: 1;
   box-shadow: var(--shadow-sm);
+}
+.brand-mark .m-k {
+  color: var(--indigo);
 }
 
 .brand-text h1 {
