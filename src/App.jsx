@@ -408,7 +408,7 @@ export default function App() {
     <div className="shell">
       <header className={`masthead ${stuck ? "stuck" : ""}`}>
         <div className="brand">
-          <div className="brand-mark">◷</div>
+          <div className="brand-mark"><span className="m-j">J</span><span className="m-k">K</span></div>
           <div className="brand-text">
             <h1>JhunKeeper</h1>
             <div className="today">{todayStr}</div>
