@@ -180,6 +180,12 @@ input {
   color: var(--ink);
   background: transparent;
   padding: 11px 8px 9px;
+  font-family: inherit;
+  line-height: 1.45;
+  resize: none;
+  overflow-y: auto;
+  max-height: 96px;
+  display: block;
 }
 .composer .title-input::placeholder {
   color: var(--muted);
@@ -764,6 +770,15 @@ input {
   min-height: 64px;
   line-height: 1.5;
   color: var(--ink-2);
+}
+.modal .modal-title {
+  resize: none;
+  min-height: 0;
+  max-height: 96px;
+  overflow-y: auto;
+  line-height: 1.45;
+  color: var(--ink);
+  font-size: 14px;
 }
 .modal input[type="date"],
 .modal input[type="time"] {
