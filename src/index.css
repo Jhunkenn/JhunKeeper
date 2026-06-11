@@ -179,7 +179,7 @@ input {
   font-size: 15px;
   color: var(--ink);
   background: transparent;
-  padding: 8px 6px 4px;
+  padding: 11px 8px 9px;
 }
 .composer .title-input::placeholder {
   color: var(--muted);
