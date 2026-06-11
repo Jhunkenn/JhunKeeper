@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   statusOf, relativeLabel, summarize, sortTasks,
   isDone, repeatLabel, fmtISO, occurrenceDate, groupUpcoming,
@@ -6,6 +6,13 @@ import {
 } from "./logic.js";
 
 const STORE_KEY = "on-schedule.tasks.v1";
+
+// Grow a textarea to fit its content; CSS max-height caps it and adds scroll.
+function autosize(el) {
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = el.scrollHeight + "px";
+}
 
 function normalize(t) {
   return {
@@ -128,6 +135,14 @@ export default function App() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  // Auto-grow the composer title and the edit-modal title.
+  const titleRef = useRef(null);
+  useEffect(() => autosize(titleRef.current), [title]);
+  const eTitleRef = useRef(null);
+  useEffect(() => {
+    if (editing) autosize(eTitleRef.current);
+  }, [eTitle, editing]);
 
   useEffect(() => {
     try {
@@ -440,9 +455,17 @@ export default function App() {
       )}
 
       <div className="composer">
-        <input className="title-input" type="text" placeholder="What needs doing?"
-          value={title} onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addTask()} aria-label="Activity" />
+        <textarea ref={titleRef} className="title-input" rows={1}
+          placeholder="What needs doing?"
+          value={title}
+          onChange={(e) => setTitle(e.target.value.replace(/\n/g, " "))}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addTask();
+            }
+          }}
+          aria-label="Activity" />
 
         <div className="composer-controls">
           {repeatMode === "once" && (
@@ -553,9 +576,14 @@ export default function App() {
 
             <div className="modal-field">
               <label className="modal-label">Title</label>
-              <input type="text" value={eTitle} autoFocus
-                onChange={(e) => setETitle(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && saveEdit()} />
+              <textarea ref={eTitleRef} className="modal-title" rows={1} value={eTitle} autoFocus
+                onChange={(e) => setETitle(e.target.value.replace(/\n/g, " "))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    saveEdit();
+                  }
+                }} />
             </div>
 
             <div className="modal-field">
