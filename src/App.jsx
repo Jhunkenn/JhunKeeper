@@ -128,6 +128,7 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState({});
   const [stuck, setStuck] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null); // task pending deletion
 
   // Sticky dashboard: subtle shadow once the page is scrolled.
   useEffect(() => {
@@ -233,6 +234,14 @@ export default function App() {
     setRepeatMode("once"); setWeeklyDays([]);
   }
 
+  function clearComposer() {
+    setTitle(""); setDue(""); setTime("");
+    setRepeatMode("once"); setWeeklyDays([]);
+  }
+  const composerDirty =
+    title.trim() !== "" || due !== "" || time !== "" ||
+    repeatMode !== "once" || weeklyDays.length > 0;
+
   function toggleDone(id) {
     setTasks((prev) =>
       prev.map((t) => {
@@ -252,6 +261,17 @@ export default function App() {
     setTasks((p) => p.filter((t) => t.id !== id));
     if (openNote === id) setOpenNote(null);
   }
+  function doConfirmDelete() {
+    if (confirmDelete) removeTask(confirmDelete.id);
+    setConfirmDelete(null);
+  }
+  // Close the delete confirmation on Escape.
+  useEffect(() => {
+    if (!confirmDelete) return;
+    const onKey = (e) => e.key === "Escape" && setConfirmDelete(null);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [confirmDelete]);
   // Only one-off completed tasks are clearable; recurring ones stay.
   const clearableCount = tasks.filter((t) => !t.repeat && t.done).length;
   function clearDone() {
@@ -410,7 +430,7 @@ export default function App() {
             aria-label="Edit activity">
             <Pencil />
           </button>
-          <button className="del-btn" onClick={() => removeTask(t.id)}
+          <button className="del-btn" onClick={() => setConfirmDelete(t)}
             aria-label="Delete activity">
             <Trash />
           </button>
@@ -480,7 +500,14 @@ export default function App() {
             <option value="daily">Daily</option>
             <option value="weekly">Weekly</option>
           </select>
-          <button className="add-btn" onClick={addTask}>Add</button>
+          <div className="composer-actions">
+            {composerDirty && (
+              <button className="clear-composer" onClick={clearComposer}>
+                Clear
+              </button>
+            )}
+            <button className="add-btn" onClick={addTask}>Add</button>
+          </div>
         </div>
 
         {repeatMode === "weekly" && (
@@ -633,6 +660,22 @@ export default function App() {
             <div className="modal-actions">
               <button className="btn-ghost" onClick={cancelEdit}>Cancel</button>
               <button className="add-btn" onClick={saveEdit}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {confirmDelete && (
+        <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
+          <div className="modal modal-confirm" onClick={(e) => e.stopPropagation()}
+            role="alertdialog" aria-modal="true" aria-label="Delete activity">
+            <h2>Delete activity</h2>
+            <p className="confirm-text">Are you sure you want to delete this activity?</p>
+            <div className="confirm-title">“{confirmDelete.title}”</div>
+            <p className="confirm-note">This action cannot be undone.</p>
+            <div className="modal-actions">
+              <button className="btn-ghost" autoFocus
+                onClick={() => setConfirmDelete(null)}>Cancel</button>
+              <button className="btn-danger" onClick={doConfirmDelete}>Delete</button>
             </div>
           </div>
         </div>
