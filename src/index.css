@@ -1110,3 +1110,40 @@ input {
   outline: 2px solid var(--indigo);
   outline-offset: 1px;
 }
+
+/* ---- FAB overdue badge ------------------------------------------------- */
+.fab {
+  position: relative;
+}
+.fab-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--coral);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+  box-shadow: 0 0 0 2px rgba(27, 36, 48, 0.92);
+}
+
+/* ---- Tauri overlay window (bubble-only) -------------------------------- */
+.overlay-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  cursor: grab;
+  -webkit-tap-highlight-color: transparent;
+}
+.overlay-root:active {
+  cursor: grabbing;
+}
