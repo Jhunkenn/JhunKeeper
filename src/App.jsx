@@ -114,7 +114,6 @@ function SearchIcon() {
 // dragging never re-renders the rest of the app. Future hooks (mini mode,
 // always-on-top, notifications, overlay) can layer onto this component.
 // ---------------------------------------------------------------------------
-const FAB_KEY = "jk.fab.position";
 const FAB_MARGIN = 24;
 const FAB_DRAG_THRESHOLD = 6;
 
@@ -127,27 +126,101 @@ function clampFab(p, size) {
     y: Math.max(0, Math.min(p.y, window.innerHeight - size)),
   };
 }
-function loadFabPos(size) {
-  try {
-    const raw = localStorage.getItem(FAB_KEY);
-    if (raw) {
-      const p = JSON.parse(raw);
-      if (typeof p.x === "number" && typeof p.y === "number") return clampFab(p, size);
-    }
-  } catch {
-    /* ignore */
-  }
+function defaultFabPos(size) {
   return {
     x: window.innerWidth - size - FAB_MARGIN,
     y: window.innerHeight - size - FAB_MARGIN,
   };
 }
-function saveFabPos(p) {
+
+// --- Platform adapters ---------------------------------------------------
+// WebAdapter is fully active. DesktopAdapter (Tauri) and AndroidAdapter
+// (Capacitor) are prepared so the same provider drives every target; their
+// native calls are guarded and fall back to web behavior until those builds
+// exist. Persistence keys: jk.fab.position, jk.fab.settings.
+const JK_KEYS = { pos: "jk.fab.position", settings: "jk.fab.settings" };
+
+const WebAdapter = {
+  name: "web",
+  capabilities: { overlay: false, tray: false, restore: false, nativeNotify: false },
+  loadJSON(key, fallback) {
+    try {
+      const r = localStorage.getItem(key);
+      return r ? JSON.parse(r) : fallback;
+    } catch {
+      return fallback;
+    }
+  },
+  saveJSON(key, val) {
+    try {
+      localStorage.setItem(key, JSON.stringify(val));
+    } catch {
+      /* storage blocked */
+    }
+  },
+  loadPosition() { return this.loadJSON(JK_KEYS.pos, null); },
+  savePosition(p) { this.saveJSON(JK_KEYS.pos, { x: p.x, y: p.y }); },
+  loadSettings() { return this.loadJSON(JK_KEYS.settings, {}); },
+  saveSettings(s) { this.saveJSON(JK_KEYS.settings, s); },
+  restoreApp() { try { window.focus(); } catch { /* */ } },
+  notify(title, body) {
+    try {
+      if ("Notification" in window && Notification.permission === "granted")
+        new Notification(title, { body });
+    } catch {
+      /* */
+    }
+  },
+};
+
+// Tauri desktop: localStorage works inside the webview, so persistence is
+// inherited; restore + notify use the native bridge when present.
+const DesktopAdapter = {
+  ...WebAdapter,
+  name: "desktop",
+  capabilities: { overlay: true, tray: true, restore: true, nativeNotify: true },
+  restoreApp() {
+    try {
+      const t = window.__TAURI__;
+      if (t && t.core && t.core.invoke) t.core.invoke("show_main");
+      else if (t && t.invoke) t.invoke("show_main");
+    } catch {
+      /* */
+    }
+  },
+  notify(title, body) {
+    try {
+      const n = window.__TAURI__ && window.__TAURI__.notification;
+      if (n && n.sendNotification) n.sendNotification({ title, body });
+    } catch {
+      /* */
+    }
+  },
+};
+
+// Android (Capacitor): the floating system bubble itself is a native plugin
+// (SYSTEM_ALERT_WINDOW); this adapter is the JS-side seam it binds to.
+const AndroidAdapter = {
+  ...WebAdapter,
+  name: "android",
+  capabilities: { overlay: true, tray: false, restore: true, nativeNotify: true },
+};
+
+function selectAdapter() {
   try {
-    localStorage.setItem(FAB_KEY, JSON.stringify({ x: p.x, y: p.y }));
+    if (typeof window !== "undefined") {
+      if (window.__TAURI__) return DesktopAdapter;
+      const cap = window.Capacitor;
+      if (cap && cap.isNativePlatform && cap.isNativePlatform()) {
+        return cap.getPlatform && cap.getPlatform() === "android"
+          ? AndroidAdapter
+          : WebAdapter;
+      }
+    }
   } catch {
-    /* storage blocked */
+    /* */
   }
+  return WebAdapter;
 }
 
 function FabPlus() {
@@ -164,17 +237,32 @@ function FabGear() {
     </svg>);
 }
 
-function Fab({ onQuickAdd, onCopyAgenda, onSearch, onSettings }) {
+function AssistiveTouchProvider({ badgeCount = 0, onQuickAdd, onCopyAgenda, onSearch, onSettings }) {
+  const adapter = useMemo(selectAdapter, []);
   const [size, setSize] = useState(fabSize);
-  const [pos, setPos] = useState(() => loadFabPos(fabSize()));
+  const [pos, setPos] = useState(() => {
+    const s = fabSize();
+    const saved = adapter.loadPosition();
+    return saved ? clampFab(saved, s) : defaultFabPos(s);
+  });
+  const [settings, setSettings] = useState(() => adapter.loadSettings() || {});
   const [side, setSide] = useState(() =>
-    pos.x + size / 2 >= window.innerWidth / 2 ? "right" : "left"
+    settings.side || (pos.x + size / 2 >= window.innerWidth / 2 ? "right" : "left")
   );
   const [open, setOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const rootRef = useRef(null);
   const fabRef = useRef(null);
   const drag = useRef({ active: false, moved: false, sx: 0, sy: 0, ox: 0, oy: 0, cx: 0, cy: 0 });
+
+  function persistSide(next) {
+    setSide(next);
+    setSettings((prev) => {
+      const merged = { ...prev, side: next };
+      adapter.saveSettings(merged);
+      return merged;
+    });
+  }
 
   // Stay attached to its edge across resize / rotation.
   useEffect(() => {
@@ -239,9 +327,9 @@ function Fab({ onQuickAdd, onCopyAgenda, onSearch, onSettings }) {
         x: right ? window.innerWidth - size - FAB_MARGIN : FAB_MARGIN,
         y: Math.max(FAB_MARGIN, Math.min(d.cy, window.innerHeight - size - FAB_MARGIN)),
       };
-      setSide(right ? "right" : "left");
+      persistSide(right ? "right" : "left");
       setPos(np);
-      saveFabPos(np);
+      adapter.savePosition(np);
     } else {
       setOpen((o) => !o); // movement < threshold → treat as click
     }
@@ -256,6 +344,7 @@ function Fab({ onQuickAdd, onCopyAgenda, onSearch, onSettings }) {
   }
 
   const act = (fn) => () => { setOpen(false); if (fn) fn(); };
+  const badge = badgeCount > 99 ? "99+" : badgeCount;
 
   return (
     <div ref={rootRef} className="fab-root"
@@ -281,6 +370,46 @@ function Fab({ onQuickAdd, onCopyAgenda, onSearch, onSettings }) {
         onPointerDown={onPointerDown} onPointerMove={onPointerMove}
         onPointerUp={onPointerUp} onKeyDown={onKeyDown}>
         <span className="m-j">J</span><span className="m-k">K</span>
+        {badgeCount > 0 && (
+          <span className="fab-badge" aria-label={`${badgeCount} overdue`}>{badge}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Renders inside the tiny always-on-top Tauri overlay window (index.html#overlay):
+// just the JK bubble + overdue badge. Click → restore the main window.
+// The window itself is dragged via the Tauri drag region.
+function overlayOverdue() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    const tasks = raw ? JSON.parse(raw) : [];
+    return summarize(tasks).overdue || 0;
+  } catch {
+    return 0;
+  }
+}
+export function OverlayBubble() {
+  const adapter = useMemo(selectAdapter, []);
+  const [overdue, setOverdue] = useState(overlayOverdue);
+  useEffect(() => {
+    // Event-driven badge refresh when the main window writes tasks. No polling.
+    const onStorage = () => setOverdue(overlayOverdue());
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+  const restore = () => adapter.restoreApp();
+  const badge = overdue > 99 ? "99+" : overdue;
+  return (
+    <div className="overlay-root" data-tauri-drag-region onClick={restore}
+      role="button" tabIndex={0} aria-label="Open JhunKeeper"
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); restore(); }
+      }}>
+      <div className="fab">
+        <span className="m-j">J</span><span className="m-k">K</span>
+        {overdue > 0 && <span className="fab-badge" aria-label={`${overdue} overdue`}>{badge}</span>}
       </div>
     </div>
   );
@@ -859,7 +988,8 @@ export default function App() {
         </div>
       )}
 
-      <Fab
+      <AssistiveTouchProvider
+        badgeCount={summary.overdue}
         onQuickAdd={() => {
           window.scrollTo({ top: 0, behavior: "smooth" });
           setTimeout(() => titleRef.current && titleRef.current.focus(), 60);
