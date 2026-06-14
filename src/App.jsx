@@ -109,6 +109,183 @@ function SearchIcon() {
     </svg>);
 }
 
+// ---------------------------------------------------------------------------
+// Floating assistive-touch button. Self-contained: its own state lives here so
+// dragging never re-renders the rest of the app. Future hooks (mini mode,
+// always-on-top, notifications, overlay) can layer onto this component.
+// ---------------------------------------------------------------------------
+const FAB_KEY = "jk.fab.position";
+const FAB_MARGIN = 24;
+const FAB_DRAG_THRESHOLD = 6;
+
+function fabSize() {
+  return typeof window !== "undefined" && window.innerWidth <= 560 ? 52 : 56;
+}
+function clampFab(p, size) {
+  return {
+    x: Math.max(0, Math.min(p.x, window.innerWidth - size)),
+    y: Math.max(0, Math.min(p.y, window.innerHeight - size)),
+  };
+}
+function loadFabPos(size) {
+  try {
+    const raw = localStorage.getItem(FAB_KEY);
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (typeof p.x === "number" && typeof p.y === "number") return clampFab(p, size);
+    }
+  } catch {
+    /* ignore */
+  }
+  return {
+    x: window.innerWidth - size - FAB_MARGIN,
+    y: window.innerHeight - size - FAB_MARGIN,
+  };
+}
+function saveFabPos(p) {
+  try {
+    localStorage.setItem(FAB_KEY, JSON.stringify({ x: p.x, y: p.y }));
+  } catch {
+    /* storage blocked */
+  }
+}
+
+function FabPlus() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>);
+}
+function FabGear() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>);
+}
+
+function Fab({ onQuickAdd, onCopyAgenda, onSearch, onSettings }) {
+  const [size, setSize] = useState(fabSize);
+  const [pos, setPos] = useState(() => loadFabPos(fabSize()));
+  const [side, setSide] = useState(() =>
+    pos.x + size / 2 >= window.innerWidth / 2 ? "right" : "left"
+  );
+  const [open, setOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const rootRef = useRef(null);
+  const fabRef = useRef(null);
+  const drag = useRef({ active: false, moved: false, sx: 0, sy: 0, ox: 0, oy: 0, cx: 0, cy: 0 });
+
+  // Stay attached to its edge across resize / rotation.
+  useEffect(() => {
+    const onResize = () => {
+      const s = fabSize();
+      setSize(s);
+      setPos((p) => {
+        const right = p.x + s / 2 >= window.innerWidth / 2;
+        return {
+          x: right ? window.innerWidth - s - FAB_MARGIN : FAB_MARGIN,
+          y: Math.max(FAB_MARGIN, Math.min(p.y, window.innerHeight - s - FAB_MARGIN)),
+        };
+      });
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // Close on outside click or Escape while open.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function onPointerDown(e) {
+    const d = drag.current;
+    d.active = true; d.moved = false;
+    d.sx = e.clientX; d.sy = e.clientY;
+    d.ox = pos.x; d.oy = pos.y; d.cx = pos.x; d.cy = pos.y;
+    setDragging(true);
+    try { fabRef.current.setPointerCapture(e.pointerId); } catch { /* */ }
+  }
+  function onPointerMove(e) {
+    const d = drag.current;
+    if (!d.active) return;
+    const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
+    if (!d.moved && Math.hypot(dx, dy) >= FAB_DRAG_THRESHOLD) d.moved = true;
+    const nx = Math.max(0, Math.min(d.ox + dx, window.innerWidth - size));
+    const ny = Math.max(0, Math.min(d.oy + dy, window.innerHeight - size));
+    d.cx = nx; d.cy = ny;
+    setPos({ x: nx, y: ny });
+  }
+  function onPointerUp(e) {
+    const d = drag.current;
+    if (!d.active) return;
+    d.active = false;
+    setDragging(false);
+    try { fabRef.current.releasePointerCapture(e.pointerId); } catch { /* */ }
+    if (d.moved) {
+      // Snap to nearest left/right edge, preserve Y.
+      const right = d.cx + size / 2 >= window.innerWidth / 2;
+      const np = {
+        x: right ? window.innerWidth - size - FAB_MARGIN : FAB_MARGIN,
+        y: Math.max(FAB_MARGIN, Math.min(d.cy, window.innerHeight - size - FAB_MARGIN)),
+      };
+      setSide(right ? "right" : "left");
+      setPos(np);
+      saveFabPos(np);
+    } else {
+      setOpen((o) => !o); // movement < threshold → treat as click
+    }
+  }
+  function onKeyDown(e) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      setOpen((o) => !o);
+    } else if (e.key === "Escape") {
+      setOpen(false);
+    }
+  }
+
+  const act = (fn) => () => { setOpen(false); if (fn) fn(); };
+
+  return (
+    <div ref={rootRef} className="fab-root"
+      style={{ left: pos.x, top: pos.y, width: size, height: size,
+        transition: dragging ? "none" : undefined }}>
+      <div className={`fab-menu side-${side} ${open ? "fab-menu--open" : ""}`}
+        role="menu" aria-label="Assistive menu actions">
+        <button className="fab-item" role="menuitem" onClick={act(onQuickAdd)}>
+          <FabPlus /><span>Quick add</span>
+        </button>
+        <button className="fab-item" role="menuitem" onClick={act(onCopyAgenda)}>
+          <Copy /><span>Copy agenda</span>
+        </button>
+        <button className="fab-item" role="menuitem" onClick={act(onSearch)}>
+          <SearchIcon /><span>Search</span>
+        </button>
+        <button className="fab-item" role="menuitem" onClick={act(onSettings)}>
+          <FabGear /><span>Settings</span>
+        </button>
+      </div>
+      <div ref={fabRef} className="fab" role="button" tabIndex={0}
+        aria-label="Assistive menu" aria-haspopup="menu" aria-expanded={open}
+        onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp} onKeyDown={onKeyDown}>
+        <span className="m-j">J</span><span className="m-k">K</span>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [tasks, setTasks] = useState(loadTasks);
   const [title, setTitle] = useState("");
@@ -144,6 +321,7 @@ export default function App() {
   useEffect(() => {
     if (editing) autosize(eTitleRef.current);
   }, [eTitle, editing]);
+  const searchRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -534,7 +712,7 @@ export default function App() {
       {tasks.length > 0 && (
         <div className="search">
           <SearchIcon />
-          <input type="text" placeholder="Search activities and notes…"
+          <input ref={searchRef} type="text" placeholder="Search activities and notes…"
             value={query} onChange={(e) => setQuery(e.target.value)}
             aria-label="Search activities" />
           {query && (
@@ -680,6 +858,21 @@ export default function App() {
           </div>
         </div>
       )}
+
+      <Fab
+        onQuickAdd={() => {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          setTimeout(() => titleRef.current && titleRef.current.focus(), 60);
+        }}
+        onCopyAgenda={copyAgenda}
+        onSearch={() => {
+          if (searchRef.current) {
+            searchRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+            setTimeout(() => searchRef.current && searchRef.current.focus(), 60);
+          }
+        }}
+        onSettings={() => {}}
+      />
     </div>
   );
 }
